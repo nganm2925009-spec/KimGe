@@ -1,1 +1,246 @@
  <p> đây là website của Nguyen Thi Kim Ngan </p>
+Chào bạn,
+
+Với vai trò là một chuyên gia về công nghệ thông tin và lập trình, tôi rất sẵn lòng hỗ trợ bạn xây dựng một công cụ để tính toán Chỉ số Chất lượng nước (WQI - Water Quality Index). Đây là một công cụ hữu ích để đánh giá chất lượng nước một cách tổng thể từ nhiều thông số riêng lẻ.
+
+Trước hết, cần phải làm rõ một điểm quan trọng: **Không có một công thức WQI duy nhất trên toàn thế giới**. Mỗi quốc gia, mỗi tổ chức (như WHO, NSF - National Sanitation Foundation của Mỹ) có thể có những phương pháp tính và các bộ trọng số khác nhau.
+
+Ở Việt Nam, phương pháp tính WQI phổ biến nhất được quy định bởi **Tổng cục Môi trường (VEA) thuộc Bộ Tài nguyên và Môi trường**, ví dụ như trong Quyết định số 1460/QĐ-TCMT.
+
+Tôi sẽ trình bày cho bạn code Python để tính WQI theo phương pháp của Việt Nam, vì nó có tính ứng dụng cao nhất tại đây. Tôi cũng sẽ giải thích cấu trúc code để bạn có thể dễ dàng tùy chỉnh hoặc thay đổi theo các tiêu chuẩn khác nếu cần.
+
+### Phần 1: Nguyên tắc tính WQI theo Tổng cục Môi trường Việt Nam
+
+Phương pháp này bao gồm các bước chính:
+
+1.  **Xác định các thông số:** Lựa chọn các thông số để đưa vào tính toán (ví dụ: pH, DO, BOD5, COD, N-NH4, P-PO4, Turbidity, TSS, Coliform).
+2.  **Tính chỉ số thành phần (QI_i):** Chuyển đổi giá trị đo đạc của từng thông số (`C_i`) sang một thang điểm từ 0 đến 100 (`QI_i`). Việc chuyển đổi này dựa trên các bảng giá trị nội suy tuyến tính. Giá trị `QI` càng cao, chất lượng càng tốt.
+3.  **Tính WQI theo nhóm:**
+    *   Các thông số được chia làm 2 nhóm: **pH** và **các thông số còn lại**.
+    *   Tính WQI cho nhóm các thông số (trừ pH) bằng công thức trung bình nhân có trọng số.
+    *   Tính WQI cho pH (`WQI_pH`).
+4.  **Tính WQI tổng hợp:** Kết hợp `WQI_pH` và WQI của nhóm thông số còn lại để ra WQI cuối cùng.
+
+### Phần 2: Code Python tính WQI
+
+Dưới đây là đoạn mã Python hoàn chỉnh. Tôi đã cấu trúc nó một cách rõ ràng, có chú thích chi tiết để bạn dễ hiểu và sử dụng.
+
+```python
+# -*- coding: utf-8 -*-
+
+"""
+MÃ NGUỒN TÍNH TOÁN CHỈ SỐ CHẤT LƯỢNG NƯỚC (WQI)
+THEO PHƯƠNG PHÁP CỦA TỔNG CỤC MÔI TRƯỜNG VIỆT NAM
+(Ví dụ dựa trên Quyết định 1460/QĐ-TCMT)
+
+Cấu trúc:
+1. Dữ liệu nội suy để tính chỉ số thành phần (QI).
+2. Hàm tính QI từ giá trị đo đạc bằng phương pháp nội suy tuyến tính.
+3. Hàm tính WQI tổng hợp.
+4. Hàm phân loại chất lượng nước.
+5. Ví dụ sử dụng.
+"""
+
+# 1. BẢNG GIÁ TRỊ ĐỂ NỘI SUY TÍNH QI CHO CÁC THÔNG SỐ
+# Mỗi thông số có một danh sách các cặp điểm (giá trị đo, điểm QI)
+# Định dạng: { 'tên_thông_số': [(giá_trị_1, qi_1), (giá_trị_2, qi_2), ...] }
+# Lưu ý: Đối với các thông số như BOD, COD, N-NH4,... giá trị đo càng thấp thì QI càng cao.
+#         Đối với DO, giá trị đo càng cao thì QI càng cao.
+
+QI_POINTS = {
+    "BOD5": [(2, 100), (4, 91), (10, 78), (25, 53), (50, 26), (100, 10)],
+    "COD": [(4, 100), (8, 93), (20, 81), (50, 56), (100, 31), (200, 13)],
+    "N-NH4": [(0.1, 100), (0.2, 94), (0.5, 83), (1, 69), (2, 55), (5, 31), (10, 17)],
+    "P-PO4": [(0.1, 100), (0.2, 90), (0.3, 83), (0.5, 73), (1, 57), (2, 38), (5, 15)],
+    "TSS": [(10, 100), (20, 89), (30, 81), (50, 68), (70, 58), (100, 45)],
+    "Turbidity": [(5, 96), (10, 86), (20, 73), (50, 50), (70, 38), (100, 26)],
+    "Coliform": [(50, 100), (2500, 80), (5000, 60), (7500, 40), (10000, 20), (15000, 5)],
+    # DO có giá trị bão hòa, phụ thuộc vào nhiệt độ và áp suất.
+    # Giả sử DO bão hòa là 8.5 mg/L. QI được tính bằng %DO bão hòa.
+    # %DO = (Giá trị DO đo được / DO bão hòa) * 100
+    # Ví dụ với DO_bão_hòa = 8.5 mg/L
+    "DO_percent": [(20, 28), (50, 63), (75, 82), (90, 93), (100, 100), (120, 90), (140, 70)],
+    "pH": [(6, 92), (6.5, 97), (7, 100), (7.5, 98), (8, 94), (8.5, 90), (9, 85)]
+}
+
+# TRỌNG SỐ (wi) CHO TỪNG THÔNG SỐ (trừ pH)
+# Các trọng số này có thể thay đổi tùy theo mục đích sử dụng nước
+WEIGHTS = {
+    "BOD5": 0.8,
+    "COD": 0.8,
+    "N-NH4": 1.0,
+    "P-PO4": 0.9,
+    "TSS": 0.7,
+    "Turbidity": 0.8,
+    "Coliform": 0.9,
+    "DO_percent": 1.0,
+}
+
+
+def calculate_sub_index(value, points):
+    """
+    Tính chỉ số thành phần (QI) cho một thông số bằng phương pháp nội suy tuyến tính.
+    
+    Args:
+        value (float): Giá trị đo đạc của thông số.
+        points (list): Danh sách các cặp điểm (giá trị, qi) đã được sắp xếp.
+
+    Returns:
+        float: Giá trị QI (0-100).
+    """
+    # Sắp xếp các điểm theo giá trị đo tăng dần
+    sorted_points = sorted(points, key=lambda p: p[0])
+    
+    # Trường hợp giá trị nằm ngoài khoảng xác định
+    if value <= sorted_points[0][0]:
+        return sorted_points[0][1]
+    if value >= sorted_points[-1][0]:
+        return sorted_points[-1][1]
+
+    # Tìm hai điểm để nội suy
+    for i in range(len(sorted_points) - 1):
+        p1 = sorted_points[i]
+        p2 = sorted_points[i+1]
+        
+        # p1[0] là giá trị đo, p1[1] là điểm QI tương ứng
+        if p1[0] <= value <= p2[0]:
+            # Công thức nội suy tuyến tính: y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
+            qi = p1[1] + (value - p1[0]) * (p2[1] - p1[1]) / (p2[0] - p1[0])
+            return qi
+    return 0 # Trả về 0 nếu có lỗi không mong muốn
+
+def calculate_wqi_vn(measurements, do_saturation=8.5):
+    """
+    Tính WQI tổng hợp theo phương pháp của Việt Nam.
+
+    Args:
+        measurements (dict): Dictionary chứa các giá trị đo đạc. 
+                             Ví dụ: {'pH': 7.2, 'BOD5': 15, 'DO': 6.5, ...}
+        do_saturation (float): Giá trị DO bão hòa (mg/L). Phụ thuộc nhiệt độ nước.
+
+    Returns:
+        tuple: (giá trị WQI cuối cùng, dictionary các chỉ số thành phần)
+    """
+    sub_indices = {}
+
+    # --- Bước 1: Tính các chỉ số thành phần QI ---
+    
+    # Tính QI cho pH
+    if 'pH' in measurements:
+        sub_indices['pH'] = calculate_sub_index(measurements['pH'], QI_POINTS['pH'])
+        
+    # Tính QI cho DO
+    if 'DO' in measurements and do_saturation > 0:
+        do_percent = (measurements['DO'] / do_saturation) * 100
+        sub_indices['DO_percent'] = calculate_sub_index(do_percent, QI_POINTS['DO_percent'])
+
+    # Tính QI cho các thông số còn lại
+    for param in measurements:
+        if param not in ['pH', 'DO'] and param in QI_POINTS:
+            sub_indices[param] = calculate_sub_index(measurements[param], QI_POINTS[param])
+            
+    # --- Bước 2: Tính WQI cho nhóm thông số (trừ pH) ---
+    numerator = 1.0  # Tích của (QI_i ^ w_i)
+    denominator = 1.0  # Tích của (w_i) - chỉ dùng để tính trung bình nhân
+    
+    # Lấy QI của các thông số có trong bộ dữ liệu đo đạc VÀ có trọng số
+    valid_params_for_group = [p for p in sub_indices if p != 'pH' and p in WEIGHTS]
+    
+    if not valid_params_for_group:
+        print("Cảnh báo: Không có đủ thông số (ngoài pH) để tính WQI nhóm.")
+        return 0, sub_indices
+        
+    for param in valid_params_for_group:
+        qi = sub_indices[param]
+        weight = WEIGHTS[param]
+        numerator *= (qi ** weight)
+    
+    total_weight = sum(WEIGHTS[param] for param in valid_params_for_group)
+    
+    wqi_group = numerator ** (1 / total_weight)
+
+    # --- Bước 3: Tính WQI cuối cùng, kết hợp với WQI_pH ---
+    # Công thức: WQI = WQI_nhóm * WQI_pH / 100
+    # Nếu một trong hai không có, WQI cuối cùng sẽ là giá trị còn lại.
+    wqi_ph = sub_indices.get('pH')
+
+    if wqi_ph is None:
+        final_wqi = wqi_group
+        print("Cảnh báo: Không có giá trị pH, WQI cuối cùng là WQI của nhóm thông số.")
+    else:
+        final_wqi = (wqi_group * wqi_ph) / 100
+
+    return final_wqi, sub_indices
+
+def classify_wqi(wqi_value):
+    """
+    Phân loại chất lượng nước dựa trên giá trị WQI.
+    """
+    if wqi_value > 91:
+        return f"Rất tốt ({wqi_value:.2f}) - Sử dụng tốt cho mục đích cấp nước sinh hoạt."
+    elif 76 <= wqi_value <= 90:
+        return f"Tốt ({wqi_value:.2f}) - Sử dụng cho mục đích cấp nước sinh hoạt nhưng cần các biện pháp xử lý phù hợp."
+    elif 51 <= wqi_value <= 75:
+        return f"Trung bình ({wqi_value:.2f}) - Sử dụng cho mục đích tưới tiêu và các mục đích tương đương khác."
+    elif 26 <= wqi_value <= 50:
+        return f"Kém ({wqi_value:.2f}) - Sử dụng cho giao thông thủy và các mục đích tương đương khác."
+    elif 11 <= wqi_value <= 25:
+        return f"Rất kém ({wqi_value:.2f}) - Nước ô nhiễm nặng, cần các biện pháp xử lý trong tương lai."
+    else:
+        return f"Ô nhiễm nghiêm trọng ({wqi_value:.2f}) - Cần có các biện pháp xử lý và phục hồi."
+
+# --- VÍ DỤ SỬ DỤNG ---
+if __name__ == "__main__":
+    # Nhập các giá trị đo đạc của bạn vào đây
+    # Đây chỉ là ví dụ mẫu
+    sample_measurements = {
+        "pH": 7.8,
+        "DO": 6.0,       # mg/L
+        "BOD5": 12,      # mg/L
+        "COD": 25,       # mg/L
+        "N-NH4": 0.8,    # mg/L
+        "P-PO4": 0.4,    # mg/L
+        "TSS": 45,       # mg/L
+        "Turbidity": 30, # NTU
+        "Coliform": 6000 # MNP/100ml
+    }
+    
+    # Có thể thay đổi giá trị DO bão hòa tùy theo nhiệt độ nước thực tế
+    # Ví dụ, ở 25 độ C, DO bão hòa khoảng 8.26 mg/L
+    do_saturation_value = 8.26
+
+    # Tính toán WQI
+    final_wqi, sub_indices_result = calculate_wqi_vn(sample_measurements, do_saturation=do_saturation_value)
+
+    # In kết quả
+    print("--- KẾT QUẢ TÍNH TOÁN WQI ---")
+    print(f"Giá trị đo đạc đầu vào: {sample_measurements}")
+    print("\nCác chỉ số thành phần (QI):")
+    for param, qi in sub_indices_result.items():
+        print(f"  - QI_{param}: {qi:.2f}")
+        
+    print("\n--- KẾT QUẢ CUỐI CÙNG ---")
+    print(f"Chỉ số chất lượng nước WQI tổng hợp: {final_wqi:.2f}")
+    
+    # Phân loại chất lượng nước
+    classification = classify_wqi(final_wqi)
+    print(f"Phân loại chất lượng nước: {classification}")
+
+```
+
+### Phần 3: Cách sử dụng và tùy chỉnh
+
+1.  **Cài đặt:** Bạn chỉ cần một trình thông dịch Python (phiên bản 3.x). Không cần cài đặt thêm thư viện nào.
+2.  **Sử dụng:**
+    *   Lưu đoạn mã trên vào một file có tên `wqi_calculator.py`.
+    *   Mở phần `if __name__ == "__main__":` ở cuối file.
+    *   Thay đổi các giá trị trong dictionary `sample_measurements` bằng số liệu thực tế bạn đo được. Nếu bạn không có một thông số nào đó, chỉ cần xóa dòng đó khỏi dictionary. Code sẽ tự động bỏ qua nó.
+    *   Chạy file từ terminal: `python wqi_calculator.py`.
+3.  **Tùy chỉnh (dành cho chuyên gia):**
+    *   **Thay đổi tiêu chuẩn:** Nếu bạn muốn áp dụng một tiêu chuẩn khác (ví dụ: NSF WQI), bạn chỉ cần thay đổi 2 thành phần chính:
+        *   `QI_POINTS`: Cập nhật lại các điểm nội suy cho từng thông số theo tiêu chuẩn mới.
+        *   `WEIGHTS`: Cập nhật lại các trọng số `w_i`.
+        *   Công thức tính WQI tổng hợp: Nếu tiêu chuẩn mới dùng công thức khác (ví dụ, NSF dùng trung bình cộng có trọng số thay vì trung bình nhân), bạn cần sửa lại logic trong hàm `calculate_wqi_vn`.
+    *   **Giá trị DO bão hòa:** Giá trị này phụ thuộc vào nhiệt độ và độ mặn. Bạn nên tra cứu giá trị chính xác tương ứng với điều kiện thực tế của mẫu nước để kết quả `QI_DO` chính xác nhất.
+
+Hy vọng đoạn mã và giải thích này sẽ giúp bạn xây dựng thành công công cụ đánh giá chất lượng nước của mình. Nếu có bất kỳ câu hỏi nào về code hoặc thuật toán, đừng ngần ngại hỏi nhé
