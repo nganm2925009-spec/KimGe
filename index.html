@@ -1,246 +1,646 @@
  <p> đây là website của Nguyen Thi Kim Ngan </p>
-Chào bạn,
-
-Với vai trò là một chuyên gia về công nghệ thông tin và lập trình, tôi rất sẵn lòng hỗ trợ bạn xây dựng một công cụ để tính toán Chỉ số Chất lượng nước (WQI - Water Quality Index). Đây là một công cụ hữu ích để đánh giá chất lượng nước một cách tổng thể từ nhiều thông số riêng lẻ.
-
-Trước hết, cần phải làm rõ một điểm quan trọng: **Không có một công thức WQI duy nhất trên toàn thế giới**. Mỗi quốc gia, mỗi tổ chức (như WHO, NSF - National Sanitation Foundation của Mỹ) có thể có những phương pháp tính và các bộ trọng số khác nhau.
-
-Ở Việt Nam, phương pháp tính WQI phổ biến nhất được quy định bởi **Tổng cục Môi trường (VEA) thuộc Bộ Tài nguyên và Môi trường**, ví dụ như trong Quyết định số 1460/QĐ-TCMT.
-
-Tôi sẽ trình bày cho bạn code Python để tính WQI theo phương pháp của Việt Nam, vì nó có tính ứng dụng cao nhất tại đây. Tôi cũng sẽ giải thích cấu trúc code để bạn có thể dễ dàng tùy chỉnh hoặc thay đổi theo các tiêu chuẩn khác nếu cần.
-
-### Phần 1: Nguyên tắc tính WQI theo Tổng cục Môi trường Việt Nam
-
-Phương pháp này bao gồm các bước chính:
-
-1.  **Xác định các thông số:** Lựa chọn các thông số để đưa vào tính toán (ví dụ: pH, DO, BOD5, COD, N-NH4, P-PO4, Turbidity, TSS, Coliform).
-2.  **Tính chỉ số thành phần (QI_i):** Chuyển đổi giá trị đo đạc của từng thông số (`C_i`) sang một thang điểm từ 0 đến 100 (`QI_i`). Việc chuyển đổi này dựa trên các bảng giá trị nội suy tuyến tính. Giá trị `QI` càng cao, chất lượng càng tốt.
-3.  **Tính WQI theo nhóm:**
-    *   Các thông số được chia làm 2 nhóm: **pH** và **các thông số còn lại**.
-    *   Tính WQI cho nhóm các thông số (trừ pH) bằng công thức trung bình nhân có trọng số.
-    *   Tính WQI cho pH (`WQI_pH`).
-4.  **Tính WQI tổng hợp:** Kết hợp `WQI_pH` và WQI của nhóm thông số còn lại để ra WQI cuối cùng.
-
-### Phần 2: Code Python tính WQI
-
-Dưới đây là đoạn mã Python hoàn chỉnh. Tôi đã cấu trúc nó một cách rõ ràng, có chú thích chi tiết để bạn dễ hiểu và sử dụng.
-
-```python
-# -*- coding: utf-8 -*-
-
-"""
-MÃ NGUỒN TÍNH TOÁN CHỈ SỐ CHẤT LƯỢNG NƯỚC (WQI)
-THEO PHƯƠNG PHÁP CỦA TỔNG CỤC MÔI TRƯỜNG VIỆT NAM
-(Ví dụ dựa trên Quyết định 1460/QĐ-TCMT)
-
-Cấu trúc:
-1. Dữ liệu nội suy để tính chỉ số thành phần (QI).
-2. Hàm tính QI từ giá trị đo đạc bằng phương pháp nội suy tuyến tính.
-3. Hàm tính WQI tổng hợp.
-4. Hàm phân loại chất lượng nước.
-5. Ví dụ sử dụng.
-"""
-
-# 1. BẢNG GIÁ TRỊ ĐỂ NỘI SUY TÍNH QI CHO CÁC THÔNG SỐ
-# Mỗi thông số có một danh sách các cặp điểm (giá trị đo, điểm QI)
-# Định dạng: { 'tên_thông_số': [(giá_trị_1, qi_1), (giá_trị_2, qi_2), ...] }
-# Lưu ý: Đối với các thông số như BOD, COD, N-NH4,... giá trị đo càng thấp thì QI càng cao.
-#         Đối với DO, giá trị đo càng cao thì QI càng cao.
-
-QI_POINTS = {
-    "BOD5": [(2, 100), (4, 91), (10, 78), (25, 53), (50, 26), (100, 10)],
-    "COD": [(4, 100), (8, 93), (20, 81), (50, 56), (100, 31), (200, 13)],
-    "N-NH4": [(0.1, 100), (0.2, 94), (0.5, 83), (1, 69), (2, 55), (5, 31), (10, 17)],
-    "P-PO4": [(0.1, 100), (0.2, 90), (0.3, 83), (0.5, 73), (1, 57), (2, 38), (5, 15)],
-    "TSS": [(10, 100), (20, 89), (30, 81), (50, 68), (70, 58), (100, 45)],
-    "Turbidity": [(5, 96), (10, 86), (20, 73), (50, 50), (70, 38), (100, 26)],
-    "Coliform": [(50, 100), (2500, 80), (5000, 60), (7500, 40), (10000, 20), (15000, 5)],
-    # DO có giá trị bão hòa, phụ thuộc vào nhiệt độ và áp suất.
-    # Giả sử DO bão hòa là 8.5 mg/L. QI được tính bằng %DO bão hòa.
-    # %DO = (Giá trị DO đo được / DO bão hòa) * 100
-    # Ví dụ với DO_bão_hòa = 8.5 mg/L
-    "DO_percent": [(20, 28), (50, 63), (75, 82), (90, 93), (100, 100), (120, 90), (140, 70)],
-    "pH": [(6, 92), (6.5, 97), (7, 100), (7.5, 98), (8, 94), (8.5, 90), (9, 85)]
-}
-
-# TRỌNG SỐ (wi) CHO TỪNG THÔNG SỐ (trừ pH)
-# Các trọng số này có thể thay đổi tùy theo mục đích sử dụng nước
-WEIGHTS = {
-    "BOD5": 0.8,
-    "COD": 0.8,
-    "N-NH4": 1.0,
-    "P-PO4": 0.9,
-    "TSS": 0.7,
-    "Turbidity": 0.8,
-    "Coliform": 0.9,
-    "DO_percent": 1.0,
-}
-
-
-def calculate_sub_index(value, points):
-    """
-    Tính chỉ số thành phần (QI) cho một thông số bằng phương pháp nội suy tuyến tính.
-    
-    Args:
-        value (float): Giá trị đo đạc của thông số.
-        points (list): Danh sách các cặp điểm (giá trị, qi) đã được sắp xếp.
-
-    Returns:
-        float: Giá trị QI (0-100).
-    """
-    # Sắp xếp các điểm theo giá trị đo tăng dần
-    sorted_points = sorted(points, key=lambda p: p[0])
-    
-    # Trường hợp giá trị nằm ngoài khoảng xác định
-    if value <= sorted_points[0][0]:
-        return sorted_points[0][1]
-    if value >= sorted_points[-1][0]:
-        return sorted_points[-1][1]
-
-    # Tìm hai điểm để nội suy
-    for i in range(len(sorted_points) - 1):
-        p1 = sorted_points[i]
-        p2 = sorted_points[i+1]
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Công cụ tính chỉ số WQI - Đánh giá chất lượng nước</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
         
-        # p1[0] là giá trị đo, p1[1] là điểm QI tương ứng
-        if p1[0] <= value <= p2[0]:
-            # Công thức nội suy tuyến tính: y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
-            qi = p1[1] + (value - p1[0]) * (p2[1] - p1[1]) / (p2[0] - p1[0])
-            return qi
-    return 0 # Trả về 0 nếu có lỗi không mong muốn
-
-def calculate_wqi_vn(measurements, do_saturation=8.5):
-    """
-    Tính WQI tổng hợp theo phương pháp của Việt Nam.
-
-    Args:
-        measurements (dict): Dictionary chứa các giá trị đo đạc. 
-                             Ví dụ: {'pH': 7.2, 'BOD5': 15, 'DO': 6.5, ...}
-        do_saturation (float): Giá trị DO bão hòa (mg/L). Phụ thuộc nhiệt độ nước.
-
-    Returns:
-        tuple: (giá trị WQI cuối cùng, dictionary các chỉ số thành phần)
-    """
-    sub_indices = {}
-
-    # --- Bước 1: Tính các chỉ số thành phần QI ---
-    
-    # Tính QI cho pH
-    if 'pH' in measurements:
-        sub_indices['pH'] = calculate_sub_index(measurements['pH'], QI_POINTS['pH'])
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
         
-    # Tính QI cho DO
-    if 'DO' in measurements and do_saturation > 0:
-        do_percent = (measurements['DO'] / do_saturation) * 100
-        sub_indices['DO_percent'] = calculate_sub_index(do_percent, QI_POINTS['DO_percent'])
-
-    # Tính QI cho các thông số còn lại
-    for param in measurements:
-        if param not in ['pH', 'DO'] and param in QI_POINTS:
-            sub_indices[param] = calculate_sub_index(measurements[param], QI_POINTS[param])
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 40px;
+        }
+        
+        .input-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+        
+        .parameter-group {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #e9ecef;
+            transition: all 0.3s ease;
+        }
+        
+        .parameter-group:hover {
+            border-color: #667eea;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.1);
+        }
+        
+        .parameter-group label {
+            display: block;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 0.95em;
+        }
+        
+        .parameter-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+        
+        .parameter-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .unit {
+            display: inline-block;
+            color: #6c757d;
+            font-size: 0.9em;
+            margin-left: 5px;
+        }
+        
+        .info-icon {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 18px;
+            font-size: 12px;
+            margin-left: 5px;
+            cursor: help;
+        }
+        
+        .button-group {
+            text-align: center;
+            margin: 30px 0;
+        }
+        
+        button {
+            padding: 15px 40px;
+            font-size: 1.1em;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 0 10px;
+        }
+        
+        .btn-calculate {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-calculate:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .btn-reset {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-reset:hover {
+            background: #5a6268;
+        }
+        
+        .result-section {
+            display: none;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            padding: 30px;
+            border-radius: 15px;
+            color: white;
+            text-align: center;
+            margin-top: 30px;
+        }
+        
+        .result-section.show {
+            display: block;
+            animation: slideIn 0.5s ease;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .wqi-value {
+            font-size: 4em;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+        
+        .wqi-status {
+            font-size: 1.8em;
+            margin-bottom: 20px;
+        }
+        
+        .wqi-description {
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+        
+        .excellent { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
+        .good { background: linear-gradient(135deg, #56ab2f 0%, #a8e063 100%); }
+        .moderate { background: linear-gradient(135deg, #FFB75E 0%, #ED8F03 100%); }
+        .poor { background: linear-gradient(135deg, #ff9966 0%, #ff5e62 100%); }
+        .very-poor { background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%); }
+        
+        .info-section {
+            margin-top: 40px;
+            padding: 25px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        
+        .info-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .info-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .info-table th, .info-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .info-table th {
+            background: #e9ecef;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+        
+        .badge-excellent { background: #38ef7d; color: white; }
+        .badge-good { background: #a8e063; color: white; }
+        .badge-moderate { background: #FFB75E; color: white; }
+        .badge-poor { background: #ff5e62; color: white; }
+        .badge-very-poor { background: #f45c43; color: white; }
+        
+        @media (max-width: 768px) {
+            .header h1 { font-size: 1.8em; }
+            .content { padding: 20px; }
+            .input-section { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌊 Công cụ tính chỉ số WQI</h1>
+            <p>Đánh giá chất lượng nước tổng thể theo tiêu chuẩn Việt Nam</p>
+        </div>
+        
+        <div class="content">
+            <div class="input-section">
+                <div class="parameter-group">
+                    <label>
+                        pH
+                        <span class="info-icon" title="Độ pH của nước (6.5-8.5 là tốt)">?</span>
+                    </label>
+                    <input type="number" id="ph" step="0.1" min="0" max="14" placeholder="Nhập giá trị pH">
+                </div>
+                
+                <div class="parameter-group">
+                    <label>
+                        DO - Oxy hòa tan
+                        <span class="unit">(mg/L)</span>
+                        <span class="info-icon" title="Dissolved Oxygen - Hàm lượng oxy hòa tan">?</span>
+                    </label>
+                    <input type="number" id="do" step="0.1" min="0" placeholder="Nhập giá trị DO">
+                </div>
+                
+                <div class="parameter-group">
+                    <label>
+                        BOD₅
+                        <span class="unit">(mg/L)</span>
+                        <span class="info-icon" title="Nhu cầu oxy sinh hóa sau 5 ngày">?</span>
+                    </label>
+                    <input type="number" id="bod" step="0.1" min="0" placeholder="Nhập giá trị BOD₅">
+                </div>
+                
+                <div class="parameter-group">
+                    <label>
+                        COD
+                        <span class="unit">(mg/L)</span>
+                        <span class="info-icon" title="Nhu cầu oxy hóa học">?</span>
+                    </label>
+                    <input type="number" id="cod" step="0.1" min="0" placeholder="Nhập giá trị COD">
+                </div>
+                
+                <div class="parameter-group">
+                    <label>
+                        NH₄⁺ - Amoni
+                        <span class="unit">(mg/L)</span>
+                        <span class="info-icon" title="Hàm lượng amoni">?</span>
+                    </label>
+                    <input type="number" id="nh4" step="0.01" min="0" placeholder="Nhập giá trị NH₄⁺">
+                </div>
+                
+                <div class="parameter-group">
+                    <label>
+                        PO₄³⁻ - Phosphat
+                        <span class="unit">(mg/L)</span>
+                        <span class="info-icon" title="Hàm lượng phosphat">?</span>
+                    </label>
+                    <input type="number" id="po4" step="0.01" min="0" placeholder="Nhập giá trị PO₄³⁻">
+                </div>
+                
+                <div class="parameter-group">
+                    <label>
+                        TSS - Tổng chất rắn lơ lửng
+                        <span class="unit">(mg/L)</span>
+                        <span class="info-icon" title="Total Suspended Solids">?</span>
+                    </label>
+                    <input type="number" id="tss" step="0.1" min="0" placeholder="Nhập giá trị TSS">
+                </div>
+                
+                <div class="parameter-group">
+                    <label>
+                        Độ đục
+                        <span class="unit">(NTU)</span>
+                        <span class="info-icon" title="Turbidity - Độ đục của nước">?</span>
+                    </label>
+                    <input type="number" id="turbidity" step="0.1" min="0" placeholder="Nhập độ đục">
+                </div>
+                
+                <div class="parameter-group">
+                    <label>
+                        Coliform
+                        <span class="unit">(MPN/100ml)</span>
+                        <span class="info-icon" title="Vi khuẩn Coliform">?</span>
+                    </label>
+                    <input type="number" id="coliform" step="1" min="0" placeholder="Nhập giá trị Coliform">
+                </div>
+            </div>
             
-    # --- Bước 2: Tính WQI cho nhóm thông số (trừ pH) ---
-    numerator = 1.0  # Tích của (QI_i ^ w_i)
-    denominator = 1.0  # Tích của (w_i) - chỉ dùng để tính trung bình nhân
+            <div class="button-group">
+                <button class="btn-calculate" onclick="calculateWQI()">
+                    🧮 Tính toán WQI
+                </button>
+                <button class="btn-reset" onclick="resetForm()">
+                    🔄 Làm mới
+                </button>
+            </div>
+            
+            <div id="result" class="result-section">
+                <h2>Kết quả đánh giá</h2>
+                <div class="wqi-value" id="wqi-value">--</div>
+                <div class="wqi-status" id="wqi-status">--</div>
+                <div class="wqi-description" id="wqi-description">--</div>
+            </div>
+            
+            <div class="info-section">
+                <h3>📊 Bảng phân loại chất lượng nước theo WQI</h3>
+                <table class="info-table">
+                    <thead>
+                        <tr>
+                            <th>Giá trị WQI</th>
+                            <th>Chất lượng nước</th>
+                            <th>Mục đích sử dụng</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>91 - 100</td>
+                            <td><span class="badge badge-excellent">Rất tốt</span></td>
+                            <td>Sử dụng tốt cho mục đích cấp nước sinh hoạt</td>
+                        </tr>
+                        <tr>
+                            <td>76 - 90</td>
+                            <td><span class="badge badge-good">Tốt</span></td>
+                            <td>Sử dụng cho cấp nước sinh hoạt nhưng cần xử lý phù hợp</td>
+                        </tr>
+                        <tr>
+                            <td>51 - 75</td>
+                            <td><span class="badge badge-moderate">Trung bình</span></td>
+                            <td>Sử dụng cho tưới tiêu và các mục đích tương đương</td>
+                        </tr>
+                        <tr>
+                            <td>26 - 50</td>
+                            <td><span class="badge badge-poor">Kém</span></td>
+                            <td>Sử dụng cho giao thông thủy và các mục đích tương đương</td>
+                        </tr>
+                        <tr>
+                            <td>0 - 25</td>
+                            <td><span class="badge badge-very-poor">Rất kém</span></td>
+                            <td>Nước ô nhiễm nặng, cần xử lý trong tương lai</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
     
-    # Lấy QI của các thông số có trong bộ dữ liệu đo đạc VÀ có trọng số
-    valid_params_for_group = [p for p in sub_indices if p != 'pH' and p in WEIGHTS]
-    
-    if not valid_params_for_group:
-        print("Cảnh báo: Không có đủ thông số (ngoài pH) để tính WQI nhóm.")
-        return 0, sub_indices
+    <script>
+        // Hàm tính toán WQI
+        function calculateWQI() {
+            // Lấy giá trị từ form
+            const parameters = {
+                ph: parseFloat(document.getElementById('ph').value) || 0,
+                do: parseFloat(document.getElementById('do').value) || 0,
+                bod: parseFloat(document.getElementById('bod').value) || 0,
+                cod: parseFloat(document.getElementById('cod').value) || 0,
+                nh4: parseFloat(document.getElementById('nh4').value) || 0,
+                po4: parseFloat(document.getElementById('po4').value) || 0,
+                tss: parseFloat(document.getElementById('tss').value) || 0,
+                turbidity: parseFloat(document.getElementById('turbidity').value) || 0,
+                coliform: parseFloat(document.getElementById('coliform').value) || 0
+            };
+            
+            // Kiểm tra xem có ít nhất một giá trị được nhập không
+            const hasInput = Object.values(parameters).some(value => value > 0);
+            if (!hasInput) {
+                alert('⚠️ Vui lòng nhập ít nhất một thông số để tính toán!');
+                return;
+            }
+            
+            // Tính toán sub-index cho từng thông số
+            const subIndices = calculateSubIndices(parameters);
+            
+            // Trọng số cho từng thông số (có thể điều chỉnh)
+            const weights = {
+                ph: 0.12,
+                do: 0.17,
+                bod: 0.11,
+                cod: 0.10,
+                nh4: 0.10,
+                po4: 0.08,
+                tss: 0.08,
+                turbidity: 0.08,
+                coliform: 0.16
+            };
+            
+            // Tính WQI tổng thể
+            let wqi = 0;
+            let totalWeight = 0;
+            
+            for (let param in parameters) {
+                if (parameters[param] > 0) {
+                    wqi += subIndices[param] * weights[param];
+                    totalWeight += weights[param];
+                }
+            }
+            
+            // Chuẩn hóa WQI
+            if (totalWeight > 0) {
+                wqi = wqi / totalWeight;
+            }
+            
+            // Hiển thị kết quả
+            displayResult(wqi);
+        }
         
-    for param in valid_params_for_group:
-        qi = sub_indices[param]
-        weight = WEIGHTS[param]
-        numerator *= (qi ** weight)
-    
-    total_weight = sum(WEIGHTS[param] for param in valid_params_for_group)
-    
-    wqi_group = numerator ** (1 / total_weight)
-
-    # --- Bước 3: Tính WQI cuối cùng, kết hợp với WQI_pH ---
-    # Công thức: WQI = WQI_nhóm * WQI_pH / 100
-    # Nếu một trong hai không có, WQI cuối cùng sẽ là giá trị còn lại.
-    wqi_ph = sub_indices.get('pH')
-
-    if wqi_ph is None:
-        final_wqi = wqi_group
-        print("Cảnh báo: Không có giá trị pH, WQI cuối cùng là WQI của nhóm thông số.")
-    else:
-        final_wqi = (wqi_group * wqi_ph) / 100
-
-    return final_wqi, sub_indices
-
-def classify_wqi(wqi_value):
-    """
-    Phân loại chất lượng nước dựa trên giá trị WQI.
-    """
-    if wqi_value > 91:
-        return f"Rất tốt ({wqi_value:.2f}) - Sử dụng tốt cho mục đích cấp nước sinh hoạt."
-    elif 76 <= wqi_value <= 90:
-        return f"Tốt ({wqi_value:.2f}) - Sử dụng cho mục đích cấp nước sinh hoạt nhưng cần các biện pháp xử lý phù hợp."
-    elif 51 <= wqi_value <= 75:
-        return f"Trung bình ({wqi_value:.2f}) - Sử dụng cho mục đích tưới tiêu và các mục đích tương đương khác."
-    elif 26 <= wqi_value <= 50:
-        return f"Kém ({wqi_value:.2f}) - Sử dụng cho giao thông thủy và các mục đích tương đương khác."
-    elif 11 <= wqi_value <= 25:
-        return f"Rất kém ({wqi_value:.2f}) - Nước ô nhiễm nặng, cần các biện pháp xử lý trong tương lai."
-    else:
-        return f"Ô nhiễm nghiêm trọng ({wqi_value:.2f}) - Cần có các biện pháp xử lý và phục hồi."
-
-# --- VÍ DỤ SỬ DỤNG ---
-if __name__ == "__main__":
-    # Nhập các giá trị đo đạc của bạn vào đây
-    # Đây chỉ là ví dụ mẫu
-    sample_measurements = {
-        "pH": 7.8,
-        "DO": 6.0,       # mg/L
-        "BOD5": 12,      # mg/L
-        "COD": 25,       # mg/L
-        "N-NH4": 0.8,    # mg/L
-        "P-PO4": 0.4,    # mg/L
-        "TSS": 45,       # mg/L
-        "Turbidity": 30, # NTU
-        "Coliform": 6000 # MNP/100ml
-    }
-    
-    # Có thể thay đổi giá trị DO bão hòa tùy theo nhiệt độ nước thực tế
-    # Ví dụ, ở 25 độ C, DO bão hòa khoảng 8.26 mg/L
-    do_saturation_value = 8.26
-
-    # Tính toán WQI
-    final_wqi, sub_indices_result = calculate_wqi_vn(sample_measurements, do_saturation=do_saturation_value)
-
-    # In kết quả
-    print("--- KẾT QUẢ TÍNH TOÁN WQI ---")
-    print(f"Giá trị đo đạc đầu vào: {sample_measurements}")
-    print("\nCác chỉ số thành phần (QI):")
-    for param, qi in sub_indices_result.items():
-        print(f"  - QI_{param}: {qi:.2f}")
+        // Hàm tính sub-indices cho từng thông số
+        function calculateSubIndices(params) {
+            const indices = {};
+            
+            // pH sub-index
+            if (params.ph > 0) {
+                if (params.ph >= 6.5 && params.ph <= 8.5) {
+                    indices.ph = 100;
+                } else if (params.ph < 6.5) {
+                    indices.ph = 100 * Math.exp(-Math.pow((params.ph - 6.5), 2) / 2);
+                } else {
+                    indices.ph = 100 * Math.exp(-Math.pow((params.ph - 8.5), 2) / 2);
+                }
+            } else {
+                indices.ph = 0;
+            }
+            
+            // DO sub-index
+            if (params.do > 0) {
+                if (params.do >= 6) {
+                    indices.do = 100;
+                } else if (params.do >= 4) {
+                    indices.do = 60 + (params.do - 4) * 20;
+                } else if (params.do >= 2) {
+                    indices.do = 30 + (params.do - 2) * 15;
+                } else {
+                    indices.do = params.do * 15;
+                }
+            } else {
+                indices.do = 0;
+            }
+            
+            // BOD sub-index
+            if (params.bod > 0) {
+                if (params.bod <= 4) {
+                    indices.bod = 100 - params.bod * 5;
+                } else if (params.bod <= 15) {
+                    indices.bod = 80 - (params.bod - 4) * 5;
+                } else {
+                    indices.bod = Math.max(0, 25 - (params.bod - 15) * 1);
+                }
+            } else {
+                indices.bod = 100;
+            }
+            
+            // COD sub-index
+            if (params.cod > 0) {
+                if (params.cod <= 10) {
+                    indices.cod = 100 - params.cod * 3;
+                } else if (params.cod <= 30) {
+                    indices.cod = 70 - (params.cod - 10) * 2;
+                } else {
+                    indices.cod = Math.max(0, 30 - (params.cod - 30) * 0.5);
+                }
+            } else {
+                indices.cod = 100;
+            }
+            
+            // NH4 sub-index
+            if (params.nh4 > 0) {
+                if (params.nh4 <= 0.3) {
+                    indices.nh4 = 100 - params.nh4 * 50;
+                } else if (params.nh4 <= 0.9) {
+                    indices.nh4 = 85 - (params.nh4 - 0.3) * 50;
+                } else {
+                    indices.nh4 = Math.max(0, 55 - (params.nh4 - 0.9) * 20);
+                }
+            } else {
+                indices.nh4 = 100;
+            }
+            
+            // PO4 sub-index
+            if (params.po4 > 0) {
+                if (params.po4 <= 0.2) {
+                    indices.po4 = 100 - params.po4 * 100;
+                } else if (params.po4 <= 0.5) {
+                    indices.po4 = 80 - (params.po4 - 0.2) * 100;
+                } else {
+                    indices.po4 = Math.max(0, 50 - (params.po4 - 0.5) * 40);
+                }
+            } else {
+                indices.po4 = 100;
+            }
+            
+            // TSS sub-index
+            if (params.tss > 0) {
+                if (params.tss <= 30) {
+                    indices.tss = 100 - params.tss * 1;
+                } else if (params.tss <= 100) {
+                    indices.tss = 70 - (params.tss - 30) * 0.5;
+                } else {
+                    indices.tss = Math.max(0, 35 - (params.tss - 100) * 0.1);
+                }
+            } else {
+                indices.tss = 100;
+            }
+            
+            // Turbidity sub-index
+            if (params.turbidity > 0) {
+                if (params.turbidity <= 5) {
+                    indices.turbidity = 100 - params.turbidity * 4;
+                } else if (params.turbidity <= 50) {
+                    indices.turbidity = 80 - (params.turbidity - 5) * 1;
+                } else {
+                    indices.turbidity = Math.max(0, 35 - (params.turbidity - 50) * 0.3);
+                }
+            } else {
+                indices.turbidity = 100;
+            }
+            
+            // Coliform sub-index
+            if (params.coliform > 0) {
+                if (params.coliform <= 50) {
+                    indices.coliform = 100 - params.coliform * 0.4;
+                } else if (params.coliform <= 5000) {
+                    indices.coliform = 98 - Math.log10(params.coliform) * 20;
+                } else {
+                    indices.coliform = Math.max(0, 30 - Math.log10(params.coliform) * 5);
+                }
+            } else {
+                indices.coliform = 100;
+            }
+            
+            return indices;
+        }
         
-    print("\n--- KẾT QUẢ CUỐI CÙNG ---")
-    print(f"Chỉ số chất lượng nước WQI tổng hợp: {final_wqi:.2f}")
-    
-    # Phân loại chất lượng nước
-    classification = classify_wqi(final_wqi)
-    print(f"Phân loại chất lượng nước: {classification}")
-
-```
-
-### Phần 3: Cách sử dụng và tùy chỉnh
-
-1.  **Cài đặt:** Bạn chỉ cần một trình thông dịch Python (phiên bản 3.x). Không cần cài đặt thêm thư viện nào.
-2.  **Sử dụng:**
-    *   Lưu đoạn mã trên vào một file có tên `wqi_calculator.py`.
-    *   Mở phần `if __name__ == "__main__":` ở cuối file.
-    *   Thay đổi các giá trị trong dictionary `sample_measurements` bằng số liệu thực tế bạn đo được. Nếu bạn không có một thông số nào đó, chỉ cần xóa dòng đó khỏi dictionary. Code sẽ tự động bỏ qua nó.
-    *   Chạy file từ terminal: `python wqi_calculator.py`.
-3.  **Tùy chỉnh (dành cho chuyên gia):**
-    *   **Thay đổi tiêu chuẩn:** Nếu bạn muốn áp dụng một tiêu chuẩn khác (ví dụ: NSF WQI), bạn chỉ cần thay đổi 2 thành phần chính:
-        *   `QI_POINTS`: Cập nhật lại các điểm nội suy cho từng thông số theo tiêu chuẩn mới.
-        *   `WEIGHTS`: Cập nhật lại các trọng số `w_i`.
-        *   Công thức tính WQI tổng hợp: Nếu tiêu chuẩn mới dùng công thức khác (ví dụ, NSF dùng trung bình cộng có trọng số thay vì trung bình nhân), bạn cần sửa lại logic trong hàm `calculate_wqi_vn`.
-    *   **Giá trị DO bão hòa:** Giá trị này phụ thuộc vào nhiệt độ và độ mặn. Bạn nên tra cứu giá trị chính xác tương ứng với điều kiện thực tế của mẫu nước để kết quả `QI_DO` chính xác nhất.
-
-Hy vọng đoạn mã và giải thích này sẽ giúp bạn xây dựng thành công công cụ đánh giá chất lượng nước của mình. Nếu có bất kỳ câu hỏi nào về code hoặc thuật toán, đừng ngần ngại hỏi nhé
+        // Hàm hiển thị kết quả
+        function displayResult(wqi) {
+            const resultSection = document.getElementById('result');
+            const wqiValue = document.getElementById('wqi-value');
+            const wqiStatus = document.getElementById('wqi-status');
+            const wqiDescription = document.getElementById('wqi-description');
+            
+            // Làm tròn WQI
+            wqi = Math.round(wqi);
+            
+            // Xác định trạng thái chất lượng nước
+            let status, description, className;
+            
+            if (wqi >= 91) {
+                status = "Rất tốt";
+                description = "✅ Nước có chất lượng rất tốt, phù hợp cho mục đích cấp nước sinh hoạt";
+                className = "excellent";
+            } else if (wqi >= 76) {
+                status = "Tốt";
+                description = "✅ Nước có chất lượng tốt, sử dụng cho sinh hoạt nhưng cần xử lý phù hợp";
+                className = "good";
+            } else if (wqi >= 51) {
+                status = "Trung bình";
+                description = "⚠️ Nước có chất lượng trung bình, sử dụng cho tưới tiêu và mục đích tương đương";
+                className = "moderate";
+            } else if (wqi >= 26) {
+                status = "Kém";
+                description = "⚠️ Nước có chất lượng kém, chỉ sử dụng cho giao thông thủy";
+                className = "poor";
+            } else {
+                status = "Rất kém";
+                description = "❌ Nước ô nhiễm nặng, cần biện pháp xử lý khẩn cấp";
+                className = "very-poor";
+            }
+            
+            // Cập nhật giao diện
+            wqiValue.textContent = wqi;
+            wqiStatus.textContent = status;
+            wqiDescription.textContent = description;
+            
+            // Thay đổi màu sắc theo chất lượng
+            resultSection.className = `result-section show ${className}`;
+            
+            // Cuộn xuống kết quả
+            resultSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        
+        // Hàm reset form
+        function resetForm() {
+            // Reset tất cả input
+            const inputs = document.querySelectorAll('input');
+            inputs.forEach(input => input.value = '');
+            
+            // Ẩn kết quả
+            document.getElementById('result').classList.remove('show');
+        }
+        
+        // Thêm sự kiện Enter để tính toán
+        document.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                calculateWQI();
+            }
+        });
+    </script>
+</body>
+</html>
